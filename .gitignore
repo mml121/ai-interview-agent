@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# FastAPI / local DB / uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
+*.db
+*.sqlite3
+.env
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
