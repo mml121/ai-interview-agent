@@ -109,6 +109,7 @@ The platform can later be extended with:
 
 - OpenAI API or Azure OpenAI
 - Optional mock mode for demo fallback
+- Current implementation uses a provider-neutral LLM client with OpenAI, Azure OpenAI, legacy Claude-compatible, and mock/fallback modes.
 
 ## Resume Parsing
 
