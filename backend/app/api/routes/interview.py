@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.auth import require_candidate
@@ -33,10 +33,10 @@ class InterviewStartRequest(BaseModel):
 
 class InterviewAnswerRequest(BaseModel):
     interview_id: int
-    answer: str
-    question: str | None = None
+    answer: str = Field(..., min_length=1, max_length=MAX_ANSWER_CHARS)
+    question: str | None = Field(default=None, max_length=1000)
     question_index: int | None = None
-    skill_area: str | None = None
+    skill_area: str | None = Field(default=None, max_length=120)
 
 
 class InterviewEndRequest(BaseModel):
@@ -61,7 +61,6 @@ def serialize_report(report: Report, interview: Interview, candidate: Candidate,
             "name": candidate.name,
             "email": candidate.email,
             "role_applied": candidate.role_applied,
-            "difficulty": candidate.difficulty,
             "profile": candidate_profile_payload(candidate),
         },
         "status": interview.status,
@@ -162,7 +161,6 @@ def create_interview_plan(
         "candidate_name": candidate.name,
         "candidate_profile": candidate_profile_payload(candidate),
         "role_applied": candidate.role_applied,
-        "difficulty": candidate.difficulty,
         "questions": questions,
     }
 

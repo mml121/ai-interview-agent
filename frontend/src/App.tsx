@@ -15,7 +15,7 @@ type UploadResult = {
   candidate_id: number;
   name: string;
   role_applied: string;
-  difficulty: string;
+  voice_enabled?: boolean;
   resume_preview: string;
   profile: CandidateProfile;
   candidate_access_token: string;
@@ -49,7 +49,6 @@ type InterviewPlan = {
   candidate_name: string;
   candidate_profile: CandidateProfile;
   role_applied: string;
-  difficulty: string;
   questions: InterviewQuestion[];
 };
 
@@ -68,6 +67,7 @@ type InterviewSession = {
   candidate_name: string;
   candidate_profile: CandidateProfile;
   role_applied: string;
+  voice_enabled?: boolean;
   status: string;
   current_question: CurrentQuestion;
 };
@@ -148,7 +148,6 @@ type SavedReport = {
     name: string;
     email: string | null;
     role_applied: string;
-    difficulty: string;
     profile: CandidateProfile;
   };
   status: string;
@@ -162,6 +161,7 @@ type SavedReport = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8001";
 const ADMIN_TOKEN_KEY = "interview-agent-admin-token";
 const CANDIDATE_TOKEN_KEY = "interview-agent-candidate-token";
+const VOICE_ENABLED_KEY = "interview-agent-voice-enabled";
 const EMPTY_PROFILE: CandidateProfile = {
   candidate_name: null,
   email: null,
@@ -172,6 +172,35 @@ const EMPTY_PROFILE: CandidateProfile = {
   technologies: [],
 };
 
+function chooseNaturalVoice(voices: SpeechSynthesisVoice[]) {
+  const englishVoices = voices.filter((voice) => voice.lang.toLowerCase().startsWith("en"));
+  const preferredNames = [
+    "natural",
+    "online",
+    "aria",
+    "jenny",
+    "guy",
+    "ava",
+    "andrew",
+    "emma",
+    "brian",
+    "google us english",
+    "google uk english",
+    "samantha",
+    "daniel",
+  ];
+
+  return (
+    englishVoices.find((voice) =>
+      preferredNames.some((name) => voice.name.toLowerCase().includes(name)),
+    ) ||
+    englishVoices.find((voice) => voice.localService === false) ||
+    englishVoices[0] ||
+    voices[0] ||
+    null
+  );
+}
+
 function getErrorMessage(err: unknown, fallback: string) {
   if (!axios.isAxiosError(err)) {
     return fallback;
@@ -181,10 +210,21 @@ function getErrorMessage(err: unknown, fallback: string) {
     return "Could not reach the backend. Make sure the API server is running.";
   }
 
+  if (typeof err.response.data === "string") {
+    return err.response.data || fallback;
+  }
+
   const detail = err.response.data?.detail;
 
   if (detail === "Not Found" || err.response.status === 404) {
     return "Backend endpoint not found. Check that the API server is running with the latest routes.";
+  }
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => item?.msg || item?.message || String(item))
+      .filter(Boolean)
+      .join(" ");
   }
 
   return detail || fallback;
@@ -217,6 +257,7 @@ function LoginPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -266,13 +307,44 @@ function LoginPage() {
 
           <label>
             Admin password
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              required
-            />
+            <span className="password-field">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                >
+                {showPassword ? (
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="password-toggle-icon"
+                  >
+                    <path d="M3 3l18 18" />
+                    <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+                    <path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c5.5 0 9 5.3 9 8a6.8 6.8 0 0 1-2.2 3.8" />
+                    <path d="M6.6 6.7C4.4 8.1 3 10.3 3 12c0 2.7 3.5 8 9 8 1.3 0 2.5-.3 3.6-.8" />
+                  </svg>
+                ) : (
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="password-toggle-icon"
+                  >
+                    <path d="M3 12s3.5-8 9-8 9 8 9 8-3.5 8-9 8-9-8-9-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+              </button>
+            </span>
           </label>
         </div>
 
@@ -358,7 +430,7 @@ function HomePage() {
 
             <div className="preview-footer">
               <span>5 questions</span>
-              <span>medium difficulty</span>
+              <span>voice enabled</span>
             </div>
           </aside>
         </div>
@@ -372,7 +444,7 @@ function UploadPage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [roleApplied, setRoleApplied] = useState("");
-  const [difficulty, setDifficulty] = useState("medium");
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [plan, setPlan] = useState<InterviewPlan | null>(null);
@@ -395,7 +467,6 @@ function UploadPage() {
     const formData = new FormData();
     formData.append("name", name);
     formData.append("role_applied", roleApplied);
-    formData.append("difficulty", difficulty);
     formData.append("file", file);
 
     try {
@@ -405,17 +476,14 @@ function UploadPage() {
         formData,
       );
 
-      setResult(response.data);
+      setResult({ ...response.data, voice_enabled: voiceEnabled });
       sessionStorage.setItem(
         CANDIDATE_TOKEN_KEY,
         response.data.candidate_access_token,
       );
+      sessionStorage.setItem(VOICE_ENABLED_KEY, String(voiceEnabled));
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.detail || "Resume upload failed.");
-      } else {
-        setError("Resume upload failed.");
-      }
+      setError(getErrorMessage(err, "Resume upload failed."));
     } finally {
       setIsUploading(false);
     }
@@ -473,13 +541,18 @@ function UploadPage() {
         },
       );
 
+      const sessionPayload = {
+        ...response.data,
+        voice_enabled: voiceEnabled,
+      };
+
       sessionStorage.setItem(
         `interview:${response.data.interview_id}`,
-        JSON.stringify(response.data),
+        JSON.stringify(sessionPayload),
       );
 
       navigate(`/interview/${response.data.interview_id}`, {
-        state: response.data,
+        state: sessionPayload,
       });
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -533,16 +606,17 @@ function UploadPage() {
             />
           </label>
 
-          <label>
-            Difficulty
-            <select
-              value={difficulty}
-              onChange={(event) => setDifficulty(event.target.value)}
-            >
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-            </select>
+          <label className="voice-option">
+            <span>
+              Voice interview
+              <small>Interviewer speaks prompts and candidate can dictate replies.</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={voiceEnabled}
+              onChange={(event) => setVoiceEnabled(event.target.checked)}
+            />
+            <span className="voice-switch" aria-hidden="true" />
           </label>
 
           <label className="file-drop">
@@ -582,7 +656,9 @@ function UploadPage() {
                 <p>{result.role_applied}</p>
                 {result.profile.email && <p>{result.profile.email}</p>}
               </div>
-              <span className="difficulty-pill">{result.difficulty}</span>
+              <span className="voice-pill">
+                {result.voice_enabled ? "Voice on" : "Text only"}
+              </span>
             </div>
           )}
 
@@ -717,8 +793,26 @@ function InterviewPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [isSessionOpen, setIsSessionOpen] = useState(false);
+  const [isVoiceEnabled] = useState<boolean>(
+    initialSession?.voice_enabled ??
+      sessionStorage.getItem(VOICE_ENABLED_KEY) !== "false",
+  );
+  const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
+  const [speechVoices, setSpeechVoices] = useState<SpeechSynthesisVoice[]>([]);
   const latestMessageRef = useRef<HTMLDivElement | null>(null);
   const answerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const canSpeak =
+    typeof window !== "undefined" && "speechSynthesis" in window;
+  const canRecord =
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia) &&
+    typeof MediaRecorder !== "undefined";
 
   useEffect(() => {
     latestMessageRef.current?.scrollIntoView({
@@ -726,6 +820,223 @@ function InterviewPage() {
       block: "nearest",
     });
   }, [messages.length]);
+
+  useEffect(() => {
+    if (!canSpeak) {
+      return;
+    }
+
+    const loadVoices = () => {
+      setSpeechVoices(window.speechSynthesis.getVoices());
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, [canSpeak]);
+
+  useEffect(() => {
+    sessionStorage.setItem(VOICE_ENABLED_KEY, String(isVoiceEnabled));
+
+    if (!isVoiceEnabled) {
+      window.speechSynthesis?.cancel();
+      audioPlayerRef.current?.pause();
+      if (mediaRecorderRef.current?.state && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+      queueMicrotask(() => setIsListening(false));
+    }
+  }, [isVoiceEnabled]);
+
+  useEffect(() => {
+    if (!currentQuestion || !isVoiceEnabled) {
+      return;
+    }
+
+    let audioUrl = "";
+    let didCancel = false;
+    window.speechSynthesis.cancel();
+
+    async function playQuestionAudio() {
+      try {
+        const response = await axios.post(
+          `${API_BASE_URL}/api/voice/speech`,
+          { text: currentQuestion?.question || "" },
+          {
+            headers: authHeaders(getCandidateToken()),
+            responseType: "blob",
+          },
+        );
+
+        if (didCancel) {
+          return;
+        }
+
+        audioUrl = URL.createObjectURL(response.data);
+        const audio = new Audio(audioUrl);
+        audioPlayerRef.current = audio;
+        await audio.play();
+        setVoiceStatus("Interviewer audio played. Record your answer when ready.");
+      } catch (err: unknown) {
+        const detail = axios.isAxiosError(err)
+          ? err.response?.data?.detail
+          : null;
+        setVoiceStatus(
+          detail ||
+            "ElevenLabs voice is not configured, using the browser voice instead.",
+        );
+
+        if (!canSpeak || didCancel) {
+          return;
+        }
+
+        const utterance = new SpeechSynthesisUtterance(currentQuestion?.question || "");
+        const selectedVoice = chooseNaturalVoice(speechVoices);
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
+        }
+        utterance.rate = 0.9;
+        utterance.pitch = 1.04;
+        utterance.volume = 1;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    playQuestionAudio();
+
+    return () => {
+      didCancel = true;
+      window.speechSynthesis.cancel();
+      audioPlayerRef.current?.pause();
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+    };
+  }, [currentQuestion, isVoiceEnabled, canSpeak, speechVoices]);
+
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis?.cancel();
+      audioPlayerRef.current?.pause();
+      if (mediaRecorderRef.current?.state && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  function stopActiveRecording() {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+  }
+
+  function releaseAudioStream() {
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+    audioStreamRef.current = null;
+  }
+
+  async function transcribeAudioBlob(blob: Blob) {
+    const formData = new FormData();
+    formData.append("file", blob, "candidate-answer.webm");
+
+    const response = await axios.post<{ text: string }>(
+      `${API_BASE_URL}/api/voice/transcribe`,
+      formData,
+      {
+        headers: authHeaders(getCandidateToken()),
+      },
+    );
+
+    return response.data.text.trim();
+  }
+
+  async function startRecording() {
+    if (!canRecord) {
+      setVoiceStatus("Audio recording is not available in this browser.");
+      return;
+    }
+
+    try {
+      audioChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      const recorderOptions =
+        MediaRecorder.isTypeSupported("audio/webm") ? { mimeType: "audio/webm" } : undefined;
+      const recorder = new MediaRecorder(stream, recorderOptions);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        releaseAudioStream();
+        setIsListening(false);
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsListening(true);
+      setError("");
+      setVoiceStatus("Recording. Speak your answer, then submit.");
+    } catch (err: unknown) {
+      setIsListening(false);
+      setVoiceStatus(
+        err instanceof Error
+          ? `Could not start the microphone: ${err.message}`
+          : "Could not start the microphone.",
+      );
+    }
+  }
+
+  async function stopRecordingAndTranscribe() {
+    const recorder = mediaRecorderRef.current;
+
+    if (!recorder || recorder.state === "inactive") {
+      return answer.trim();
+    }
+
+    const audioBlob = await new Promise<Blob>((resolve) => {
+      recorder.onstop = () => {
+        releaseAudioStream();
+        setIsListening(false);
+        resolve(new Blob(audioChunksRef.current, { type: "audio/webm" }));
+      };
+      recorder.stop();
+    });
+
+    if (!audioBlob.size) {
+      return "";
+    }
+
+    setIsTranscribing(true);
+    setVoiceStatus("Transcribing your answer.");
+
+    try {
+      const transcript = await transcribeAudioBlob(audioBlob);
+      setAnswer(transcript);
+      setVoiceStatus("Answer captured. Submitting.");
+      return transcript;
+    } finally {
+      setIsTranscribing(false);
+    }
+  }
+
+  function toggleListening() {
+    if (isListening) {
+      stopActiveRecording();
+      setVoiceStatus("Recording stopped. Submit when ready.");
+      return;
+    }
+
+    startRecording();
+  }
 
   async function handleSubmitAnswer(event: React.FormEvent) {
     event.preventDefault();
@@ -735,14 +1046,29 @@ function InterviewPage() {
       return;
     }
 
-    const trimmedAnswer = answer.trim();
+    let trimmedAnswer = answer.trim();
+
+    if (isVoiceEnabled && isListening) {
+      try {
+        trimmedAnswer = (await stopRecordingAndTranscribe()).trim();
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, "Could not transcribe the recorded answer."));
+        return;
+      }
+    }
 
     if (!trimmedAnswer) {
-      setError("Write an answer before submitting.");
+      setError(
+        isVoiceEnabled
+          ? "Record your answer before submitting."
+          : "Write an answer before submitting.",
+      );
       return;
     }
 
     setError("");
+    stopActiveRecording();
+    setIsListening(false);
 
     try {
       setIsSubmitting(true);
@@ -879,6 +1205,13 @@ function InterviewPage() {
 
           <div className="chat-header-actions">
             <span className="chat-status">{status}</span>
+            <span
+              className={`voice-mode-badge${
+                isVoiceEnabled ? " voice-mode-badge-active" : ""
+              }`}
+            >
+              {isVoiceEnabled ? "Voice Interview" : "Text Interview"}
+            </span>
             <button
               className="secondary-action"
               type="button"
@@ -913,7 +1246,10 @@ function InterviewPage() {
           </div>
         </section>
 
-        <section className="conversation-window" aria-label="Interview conversation">
+        <section
+          className={`conversation-window${isVoiceEnabled ? " conversation-window-voice" : ""}`}
+          aria-label="Interview conversation"
+        >
           {messages.map((message, index) => (
             <article
               className={`chat-message chat-message-${message.speaker}`}
@@ -928,7 +1264,21 @@ function InterviewPage() {
                     : "Interviewer"}
                 {message.is_follow_up ? " follow-up" : ""}
               </span>
-              <p>{message.text}</p>
+              {isVoiceEnabled && message.speaker !== "system" ? (
+                <div
+                  className="audio-message-visual"
+                  aria-label={`${message.speaker} audio ${
+                    message.speaker === "interviewer" ? "prompt" : "response"
+                  }`}
+                >
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </div>
+              ) : (
+                <p>{message.text}</p>
+              )}
             </article>
           ))}
         </section>
@@ -936,28 +1286,59 @@ function InterviewPage() {
         <footer className="chat-composer">
           {currentQuestion ? (
             <>
-              <label>
-                Reply
-                <textarea
-                  ref={answerInputRef}
-                  value={answer}
-                  onChange={(event) => {
-                    setAnswer(event.target.value);
-                    event.currentTarget.style.height = "auto";
-                    event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
-                  }}
-                  placeholder="Type the candidate's response..."
-                  rows={1}
-                />
-              </label>
+              {!isVoiceEnabled && (
+                <label>
+                  Reply
+                  <textarea
+                    ref={answerInputRef}
+                    value={answer}
+                    onChange={(event) => {
+                      setAnswer(event.target.value);
+                      event.currentTarget.style.height = "auto";
+                      event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
+                    }}
+                    placeholder="Type the candidate's response..."
+                    rows={1}
+                  />
+                </label>
+              )}
 
-              <button
-                className="primary-action"
-                type="submit"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "Saving answer..." : "Submit Answer"}
-              </button>
+              <div className="composer-actions">
+                {isVoiceEnabled && (
+                  <button
+                    className={`secondary-action mic-action${
+                      isListening ? " mic-action-listening" : ""
+                    }`}
+                    type="button"
+                    onClick={toggleListening}
+                    disabled={!canRecord || isSubmitting || isTranscribing}
+                    aria-pressed={isListening}
+                  >
+                    {isListening ? "Stop Mic" : "Speak Answer"}
+                  </button>
+                )}
+
+                <button
+                  className="primary-action"
+                  type="submit"
+                  disabled={isSubmitting || isTranscribing}
+                >
+                  {isTranscribing
+                    ? "Transcribing..."
+                    : isSubmitting
+                      ? "Saving answer..."
+                      : "Submit Answer"}
+                </button>
+              </div>
+
+              {isVoiceEnabled && (
+                <p className="voice-status">
+                  {voiceStatus ||
+                    (canRecord
+                      ? "Audio mode is ready. Use Speak Answer, then submit."
+                      : "Audio recording is unavailable in this browser.")}
+                </p>
+              )}
             </>
           ) : (
             <div className="completion-card">
@@ -1029,6 +1410,8 @@ function AdminDashboardPage() {
   );
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [deletingInterviewId, setDeletingInterviewId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminInterviewDetail | null>(null);
 
   useEffect(() => {
     async function loadInterviews() {
@@ -1078,6 +1461,31 @@ function AdminDashboardPage() {
       } else {
         setError("Could not load interview detail.");
       }
+    }
+  }
+
+  async function confirmDeleteInterview() {
+    if (!deleteTarget) {
+      return;
+    }
+
+    const interview = deleteTarget;
+    setError("");
+    setDeletingInterviewId(interview.interview_id);
+
+    try {
+      await axios.delete(`${API_BASE_URL}/api/admin/interviews/${interview.interview_id}`, {
+        headers: authHeaders(getAdminToken()),
+      });
+      setInterviews((items) =>
+        items.filter((item) => item.interview_id !== interview.interview_id),
+      );
+      setSelectedInterview(null);
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Could not delete report."));
+    } finally {
+      setDeletingInterviewId(null);
     }
   }
 
@@ -1164,9 +1572,21 @@ function AdminDashboardPage() {
                   <h2>{selectedInterview.candidate_name}</h2>
                   <p>{selectedInterview.role_applied}</p>
                 </div>
-                <div className="score-badge">
-                  <span>Score</span>
-                  <strong>{selectedInterview.overall_score ?? "-"}</strong>
+                <div className="admin-score-actions">
+                  <div className="score-badge">
+                    <span>Score</span>
+                    <strong>{selectedInterview.overall_score ?? "-"}</strong>
+                  </div>
+                  <button
+                    className="danger-action"
+                    type="button"
+                    onClick={() => setDeleteTarget(selectedInterview)}
+                    disabled={deletingInterviewId === selectedInterview.interview_id}
+                  >
+                    {deletingInterviewId === selectedInterview.interview_id
+                      ? "Deleting..."
+                      : "Delete Report"}
+                  </button>
                 </div>
               </div>
 
@@ -1242,6 +1662,43 @@ function AdminDashboardPage() {
           )}
         </aside>
       </section>
+
+      {deleteTarget && (
+        <div className="confirm-overlay" role="dialog" aria-modal="true">
+          <section className="confirm-dialog" aria-labelledby="delete-report-title">
+            <div>
+              <p className="eyebrow">Delete report</p>
+              <h2 id="delete-report-title">Remove this interview report?</h2>
+              <p>
+                This will delete the report and transcript for{" "}
+                <strong>{deleteTarget.candidate_name}</strong>. This action cannot
+                be undone.
+              </p>
+            </div>
+
+            <div className="confirm-actions">
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deletingInterviewId === deleteTarget.interview_id}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-action confirm-danger-action"
+                type="button"
+                onClick={confirmDeleteInterview}
+                disabled={deletingInterviewId === deleteTarget.interview_id}
+              >
+                {deletingInterviewId === deleteTarget.interview_id
+                  ? "Deleting..."
+                  : "Delete Report"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

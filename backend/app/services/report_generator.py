@@ -29,6 +29,15 @@ def fallback_report(
         if scores
     ]
     overall_score = interview.overall_score or 0
+    strongest_answers = sorted(
+        [answer for answer in answers if answer.score is not None],
+        key=lambda answer: answer.score or 0,
+        reverse=True,
+    )
+    weakest_answers = list(reversed(strongest_answers))
+    strongest = strongest_answers[0] if strongest_answers else None
+    weakest = weakest_answers[0] if weakest_answers else None
+    answered_areas = ", ".join(dict.fromkeys(answer.skill_area for answer in answers)) or "the interview"
 
     return {
         "candidate": {
@@ -39,18 +48,34 @@ def fallback_report(
             "profile": candidate_profile_payload(candidate),
         },
         "summary": (
-            f"{candidate.name} completed a screening interview for {candidate.role_applied}. "
-            "The report was generated from answer scores and evaluator feedback."
+            f"{candidate.name} completed a {candidate.role_applied} screening covering {answered_areas}. "
+            f"The strongest evidence came from {strongest.skill_area if strongest else 'the recorded answers'}, "
+            f"where the evaluator noted: {strongest.feedback if strongest and strongest.feedback else 'no detailed evaluator note was recorded'}. "
+            f"The weakest signal came from {weakest.skill_area if weakest else 'the recorded answers'}, "
+            f"where the evaluator noted: {weakest.feedback if weakest and weakest.feedback else 'no detailed evaluator note was recorded'}."
         ),
         "overall_score": overall_score,
         "recommendation": interview.recommendation or recommendation_for_score(overall_score),
-        "recommendation_reason": "Recommendation is based on the average scored answer quality.",
+        "recommendation_reason": (
+            f"The recommendation is tied to an overall score of {overall_score}. "
+            f"Highest-scored area: {strongest.skill_area if strongest else 'not available'} "
+            f"({strongest.score if strongest else 'n/a'}/5). "
+            f"Lowest-scored area: {weakest.skill_area if weakest else 'not available'} "
+            f"({weakest.score if weakest else 'n/a'}/5)."
+        ),
         "strengths": [
-            "Completed the full interview flow.",
-            "Provided enough information for answer-level scoring.",
+            (
+                f"{strongest.skill_area}: {strongest.feedback}"
+                if strongest and strongest.feedback
+                else "Provided enough information for answer-level scoring."
+            ),
         ],
         "weaknesses": [
-            "Some responses may need deeper review by a human interviewer.",
+            (
+                f"{weakest.skill_area}: {weakest.feedback}"
+                if weakest and weakest.feedback
+                else "Some responses did not contain enough detail for a confident evaluation."
+            ),
         ],
         "skill_scores": skill_summary,
         "transcript_summary": [
@@ -81,23 +106,36 @@ def generate_final_report(
     ]
     profile = candidate_profile_payload(candidate)
     prompt = f"""
-You are writing an admin-facing technical screening report.
+You are writing an admin-facing technical screening report for a recruiter or hiring manager.
+Your job is to turn the transcript and evaluator feedback into a specific, evidence-backed report.
 
 Return ONLY valid JSON with this schema:
 {{
-  "summary": "short paragraph",
+  "summary": "5-7 sentence paragraph with concrete evidence from the candidate's answers",
   "overall_score": 3.4,
   "recommendation": "Hire / Proceed",
-  "recommendation_reason": "short explanation",
-  "strengths": ["item"],
-  "weaknesses": ["item"],
+  "recommendation_reason": "3-5 sentence explanation tied to score and answer evidence",
+  "strengths": ["specific strength with transcript evidence"],
+  "weaknesses": ["specific gap with transcript evidence"],
   "skill_scores": [
-    {{"skill_area": "Technical Depth", "score": 3.5, "notes": "short note"}}
+    {{"skill_area": "Technical Depth", "score": 3.5, "notes": "specific evidence-backed note"}}
   ],
   "transcript_summary": [
-    {{"skill_area": "Resume", "score": 3, "feedback": "short feedback"}}
+    {{"skill_area": "Resume", "score": 3, "feedback": "what the candidate said and how well it answered the prompt"}}
   ]
 }}
+
+Report quality rules:
+- Be concrete. Reference the candidate's actual projects, technologies, role target, answer details, scores, and evaluator feedback when available.
+- Do NOT write generic phrases like "completed the interview", "showed good skills", "needs deeper review", or "based on average scored answer quality".
+- If an answer is vague or too short, say exactly which topic was weak and what evidence was missing.
+- Do not invent details that are not in the profile, answer data, scores, or feedback.
+- Summary must explain the candidate's performance pattern across the interview, not just restate that they interviewed.
+- Recommendation reason must explicitly explain why the final recommendation follows from the strongest and weakest evidence.
+- Strengths and weaknesses must be actionable hiring notes, each grounded in at least one question, answer, score, or feedback item.
+- Skill score notes must mention the evidence behind the score.
+- Transcript summary must summarize each answer's substance, not merely repeat the evaluator feedback.
+- Keep the tone professional, direct, and useful for an admin deciding next steps.
 
 Candidate:
 Name: {candidate.name}
@@ -106,10 +144,10 @@ Role: {candidate.role_applied}
 Overall score: {interview.overall_score}
 Recommendation: {interview.recommendation}
 Structured profile:
-{json.dumps(profile, ensure_ascii=False)}
+{json.dumps(profile, ensure_ascii=False, indent=2)}
 
 Answer data:
-{json.dumps(answer_payload, ensure_ascii=False)}
+{json.dumps(answer_payload, ensure_ascii=False, indent=2)}
 """.strip()
 
     try:

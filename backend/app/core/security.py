@@ -17,6 +17,8 @@ def _b64decode(value: str) -> bytes:
 
 
 def create_signed_token(payload: dict[str, Any], secret_key: str, minutes: int) -> str:
+    if not secret_key:
+        raise ValueError("A signing secret is required")
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=minutes)
     token_payload = {**payload, "exp": int(expires_at.timestamp())}
     body = _b64encode(json.dumps(token_payload, separators=(",", ":")).encode("utf-8"))
@@ -24,7 +26,9 @@ def create_signed_token(payload: dict[str, Any], secret_key: str, minutes: int) 
     return f"{body}.{_b64encode(signature)}"
 
 
-def verify_signed_token(token: str, secret_key: str) -> dict[str, Any] | None:
+def verify_signed_token(token: str, secret_key: str | None) -> dict[str, Any] | None:
+    if not secret_key:
+        return None
     try:
         body, signature = token.split(".", 1)
         expected = hmac.new(secret_key.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()

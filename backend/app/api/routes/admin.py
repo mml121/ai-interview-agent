@@ -103,3 +103,26 @@ def get_interview_detail(
             for answer in answers
         ],
     }
+
+
+@router.delete("/interviews/{interview_id}")
+def delete_interview_report(
+    interview_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_admin),
+):
+    interview = db.get(Interview, interview_id)
+
+    if interview is None:
+        raise HTTPException(status_code=404, detail="Interview not found")
+
+    db.query(Report).filter(Report.interview_id == interview.id).delete(
+        synchronize_session=False
+    )
+    db.query(InterviewAnswer).filter(InterviewAnswer.interview_id == interview.id).delete(
+        synchronize_session=False
+    )
+    db.delete(interview)
+    db.commit()
+
+    return {"deleted_interview_id": interview_id}

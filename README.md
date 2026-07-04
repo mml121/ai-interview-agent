@@ -9,13 +9,13 @@ The implementation follows the design in `docs/DESIGN.md`: a React/Vite frontend
 - Candidate resume upload for PDF, DOCX, and TXT files
 - Resume text extraction and structured candidate profile storage
 - Candidate profile fields for name, email, skills, projects, experience, education, and technologies
-- Role and difficulty-aware interview plan generation
-- Chat-based interview flow with one question shown at a time
+- Role-aware interview plan generation
+- Chat-based interview flow with optional interviewer speech and candidate dictation
 - Follow-up prompts for short or vague answers
 - Answer scoring on a 1 to 5 scale with short feedback
 - Final report generation with recommendation, strengths, weaknesses, and skill scores
 - Candidate-facing report page for completed interviews
-- Admin dashboard for completed interviews
+- Admin dashboard for reviewing and deleting completed interviews
 - SQLite-backed persistence for candidates, interviews, answers, reports, and access tokens
 
 ## Project Structure
@@ -47,10 +47,10 @@ Copy-Item ..\.env.example .env
 Edit `backend/.env` before starting the API. Admin login is disabled until `ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH` and `AUTH_SECRET_KEY` are configured.
 
 ```powershell
-uvicorn app.main:app --reload --port 8001
+.\dev.ps1
 ```
 
-The health check is available at `http://127.0.0.1:8001/health`.
+By default, the API binds to `http://127.0.0.1:8001`. You can override this with `BACKEND_HOST` and `BACKEND_PORT` in `backend/.env`. The health check is available at `http://127.0.0.1:8001/health`.
 
 ## Frontend Setup
 
@@ -61,7 +61,7 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-Open the Vite URL, usually `http://localhost:5173`.
+Open the Vite URL at `http://127.0.0.1:5173`. The dev server uses a strict port so CORS stays aligned with the backend; if `5173` is busy, stop the other process or update `VITE_DEV_PORT` and `BACKEND_CORS_ORIGINS` together.
 
 ## Environment Variables
 
@@ -69,6 +69,7 @@ Backend variables are documented in `.env.example`. The most important security 
 
 - `ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`: admin login credential
 - `AUTH_SECRET_KEY`: signing key for admin bearer tokens
+- `BACKEND_HOST` / `BACKEND_PORT`: local API bind address and port
 - `BACKEND_CORS_ORIGINS`: comma-separated list of allowed frontend origins
 - `CANDIDATE_TOKEN_HOURS`: candidate interview token lifetime
 - `MAX_RESUME_UPLOAD_BYTES`: upload size cap
@@ -76,6 +77,7 @@ Backend variables are documented in `.env.example`. The most important security 
 - `OPENAI_API_KEY` / `OPENAI_MODEL`: OpenAI chat-completions configuration
 - `AZURE_OPENAI_API_URL` / `AZURE_OPENAI_API_KEY` / `AZURE_OPENAI_DEPLOYMENT`: Azure OpenAI configuration
 - `CLAUDE_API_URL` / `CLAUDE_API_KEY`: legacy Claude-compatible endpoint configuration
+- `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID`: optional voice interview speech and transcription configuration
 
 Frontend variables are documented in `frontend/.env.example`.
 
@@ -86,9 +88,12 @@ Frontend variables are documented in `frontend/.env.example`.
 - `POST /api/interview/start`: create an interview session and return the first question
 - `POST /api/interview/answer`: submit an answer, evaluate it, and receive the next question or follow-up
 - `POST /api/interview/end`: explicitly end an interview, compute scores, persist a report, and return the report payload
+- `POST /api/voice/speech`: synthesize interviewer audio for a candidate session
+- `POST /api/voice/transcribe`: transcribe a recorded candidate answer
 - `GET /api/reports/{report_id}`: return a saved report by `reports.id` for candidate display
 - `GET /api/admin/interviews`: list completed interviews for admins
 - `GET /api/admin/interviews/{interview_id}`: view report and answer details
+- `DELETE /api/admin/interviews/{interview_id}`: delete an interview report and transcript
 - `POST /api/auth/admin/login`: issue an admin bearer token
 
 The candidate report page is available at `/reports/:reportId` after an interview completes. The admin dashboard remains available at `/admin`.

@@ -43,12 +43,13 @@ The following features will be part of the MVP:
 - **Interview plan generation**
     
     - Identify skill areas
-    - Set difficulty level
+    - Configure voice mode for the candidate session
     - Generate question flow
 - **Chat-based interview**
     
     - One question at a time
-    - Candidate answers through a simple text interface
+    - Candidate answers through text or browser dictation
+    - Interviewer prompts can be spoken aloud by the browser
     - Interview progresses step by step
 - **Follow-up question logic**
     
@@ -76,7 +77,6 @@ The following features will be part of the MVP:
 
 The platform can later be extended with:
 
-- voice-based interviews
 - video interviews
 - AI avatar interviewer
 - recruiter dashboard
@@ -152,7 +152,7 @@ The system uses the candidate profile to generate interview topics and personali
 
 ### Interview Execution
 
-The candidate completes a text-based interview.  
+The candidate completes a text or voice-assisted interview.  
 The system asks one question at a time and evaluates each response in the backend.
 
 ### Report Generation
@@ -175,14 +175,14 @@ At the end of the interview, the system creates a final report with scoring, obs
 - Candidate name
 - Role applied for
 - Resume upload
-- Difficulty selection
+- Voice interview option
 - Start Interview button
 
 ## Interview Page
 
 - Candidate details and skills
 - Chat window
-- Answer input and submit action
+- Answer input, dictation control, and submit action
 
 ## Report Page
 
@@ -208,7 +208,7 @@ Converts resume text into a structured candidate profile.
 
 ## Interview Generator
 
-Creates interview sections and question sets based on role, skills, and difficulty.
+Creates interview sections and question sets based on role, skills, projects, and experience.
 
 ## Evaluation Engine
 

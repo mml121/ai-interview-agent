@@ -17,7 +17,30 @@ from app.services.resume_parser import extract_resume_text
 router = APIRouter(prefix="/api/resume", tags=["resume"])
 
 SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx"}
-SUPPORTED_DIFFICULTIES = {"easy", "medium", "hard"}
+MAX_FORM_FIELD_CHARS = 120
+
+
+def clean_required_field(value: str, field_name: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+    if len(cleaned) > MAX_FORM_FIELD_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be {MAX_FORM_FIELD_CHARS} characters or less",
+        )
+    return cleaned
+
+
+def upload_directory() -> Path:
+    settings = get_settings()
+    configured_dir = Path(settings.upload_dir)
+    if not configured_dir.is_absolute():
+        configured_dir = Path(__file__).resolve().parents[3] / configured_dir
+
+    resolved_dir = configured_dir.resolve()
+    resolved_dir.mkdir(parents=True, exist_ok=True)
+    return resolved_dir
 
 
 async def save_upload_with_limit(file: UploadFile, saved_path: Path, max_bytes: int) -> None:
@@ -35,25 +58,18 @@ async def save_upload_with_limit(file: UploadFile, saved_path: Path, max_bytes: 
 async def upload_resume(
     name: str = Form(...),
     role_applied: str = Form(...),
-    difficulty: str = Form("medium"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
     settings = get_settings()
+    candidate_name = clean_required_field(name, "Candidate name")
+    target_role = clean_required_field(role_applied, "Role applied for")
     suffix = Path(file.filename or "").suffix.lower()
-    normalized_difficulty = difficulty.strip().lower()
 
     if suffix not in SUPPORTED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only PDF, DOCX, and TXT resumes are supported")
 
-    if normalized_difficulty not in SUPPORTED_DIFFICULTIES:
-        raise HTTPException(status_code=400, detail="Difficulty must be easy, medium, or hard")
-
-    if len(name.strip()) > 120 or len(role_applied.strip()) > 120:
-        raise HTTPException(status_code=400, detail="Candidate name and role must be 120 characters or less")
-
-    upload_dir = Path(settings.upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = upload_directory()
     saved_path = upload_dir / f"{uuid4()}{suffix}"
 
     try:
@@ -70,12 +86,12 @@ async def upload_resume(
     if not resume_text:
         raise HTTPException(status_code=400, detail="No text could be extracted from the resume")
 
-    profile = extract_candidate_profile(resume_text, name.strip())
+    profile = extract_candidate_profile(resume_text, candidate_name)
     candidate = Candidate(
-        name=profile.candidate_name or name.strip(),
+        name=profile.candidate_name or candidate_name,
         email=profile.email,
-        role_applied=role_applied.strip(),
-        difficulty=normalized_difficulty,
+        role_applied=target_role,
+        difficulty="medium",
         resume_text=resume_text,
         skills=json.dumps(profile.skills),
         projects=json.dumps(profile.projects),
@@ -102,7 +118,6 @@ async def upload_resume(
         "candidate_id": candidate.id,
         "name": candidate.name,
         "role_applied": candidate.role_applied,
-        "difficulty": candidate.difficulty,
         "resume_preview": candidate.resume_text[:1000],
         "profile": profile_to_json(profile),
         "candidate_access_token": access_token,

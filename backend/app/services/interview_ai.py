@@ -33,7 +33,7 @@ def fallback_questions(candidate: Candidate) -> list[dict]:
         {
             "id": 3,
             "skill_area": "Technical Depth",
-            "question": f"At a {candidate.difficulty} level, what is a technically challenging problem you solved using {primary_skill}?",
+            "question": f"What is a technically challenging problem you solved using {primary_skill}, and how did you approach it?",
         },
         {
             "id": 4,
@@ -70,7 +70,7 @@ Rules:
 - Ask one question at a time, but this output is the private interviewer plan.
 - Keep questions concise and conversational.
 - Base questions on the structured candidate profile first, then the resume excerpt.
-- Reflect the target role, selected difficulty, skills, projects, technologies, and experience.
+- Reflect the target role, skills, projects, technologies, and experience.
 - Include a mix of background, project depth, technical depth, problem solving, and role fit.
 - Do not include answers or scoring.
 
@@ -78,7 +78,6 @@ Candidate:
 Name: {candidate.name}
 Email: {candidate.email or "unknown"}
 Role: {candidate.role_applied}
-Difficulty: {candidate.difficulty}
 Structured profile:
 {profile}
 Resume excerpt:

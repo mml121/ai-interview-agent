@@ -23,6 +23,12 @@ def require_admin(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict:
     settings = get_settings()
+    if not settings.admin_auth_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin authentication is not configured",
+        )
+
     token = _bearer_token(authorization)
     payload = verify_signed_token(token, settings.auth_secret_key)
 
