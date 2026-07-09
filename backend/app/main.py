@@ -23,6 +23,7 @@ def ensure_sqlite_columns() -> None:
     table_columns = {
         "candidates": {
             "email": "TEXT",
+            "job_description": "TEXT",
             "projects": "TEXT DEFAULT ''",
             "experience": "TEXT DEFAULT ''",
             "education": "TEXT DEFAULT ''",

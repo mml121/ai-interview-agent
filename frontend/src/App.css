@@ -533,6 +533,10 @@ textarea:focus {
   display: none;
 }
 
+.jd-file-drop {
+  min-height: 86px;
+}
+
 .voice-option {
   display: flex;
   min-width: 0;

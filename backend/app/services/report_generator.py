@@ -105,6 +105,7 @@ def generate_final_report(
         for answer in answers
     ]
     profile = candidate_profile_payload(candidate)
+    job_description = (getattr(candidate, "job_description", None) or "").strip()
     prompt = f"""
 You are writing an admin-facing technical screening report for a recruiter or hiring manager.
 Your job is to turn the transcript and evaluator feedback into a specific, evidence-backed report.
@@ -141,6 +142,8 @@ Candidate:
 Name: {candidate.name}
 Email: {candidate.email or "unknown"}
 Role: {candidate.role_applied}
+Job description excerpt:
+{job_description[:2500] if job_description else "No job description was uploaded."}
 Overall score: {interview.overall_score}
 Recommendation: {interview.recommendation}
 Structured profile:

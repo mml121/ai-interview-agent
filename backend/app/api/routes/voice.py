@@ -114,9 +114,9 @@ async def synthesize_speech(
         "text": text,
         "model_id": settings.elevenlabs_tts_model,
         "voice_settings": {
-            "stability": 0.42,
-            "similarity_boost": 0.78,
-            "style": 0.24,
+            "stability": 0.32,
+            "similarity_boost": 0.86,
+            "style": 0.42,
             "use_speaker_boost": True,
         },
     }

@@ -16,6 +16,7 @@ type UploadResult = {
   name: string;
   role_applied: string;
   voice_enabled?: boolean;
+  job_description_preview?: string;
   resume_preview: string;
   profile: CandidateProfile;
   candidate_access_token: string;
@@ -171,6 +172,34 @@ const EMPTY_PROFILE: CandidateProfile = {
   education: [],
   technologies: [],
 };
+
+function buildInterviewerTurnText(
+  question: CurrentQuestion,
+  session: InterviewSession | null,
+) {
+  const candidateName = session?.candidate_name?.split(/\s+/)[0] || "there";
+  const role = session?.role_applied || "this role";
+
+  if (question.is_follow_up) {
+    return `Thanks, I want to dig into that a little more. ${question.question}`;
+  }
+
+  if (question.question_index === 0) {
+    return `Hi ${candidateName}, thanks for taking the time today. I will keep this pretty conversational, like a quick phone screen for the ${role} position. To get started, ${question.question}`;
+  }
+
+  const transitions = [
+    "Great, thanks for that context.",
+    "That helps. Let me shift to something more specific.",
+    "Okay, I would like to understand how you think through problems.",
+    "Thanks. One more area I want to cover before we wrap up.",
+  ];
+
+  const transition =
+    transitions[Math.min(question.question_index - 1, transitions.length - 1)];
+
+  return `${transition} ${question.question}`;
+}
 
 function chooseNaturalVoice(voices: SpeechSynthesisVoice[]) {
   const englishVoices = voices.filter((voice) => voice.lang.toLowerCase().startsWith("en"));
@@ -446,6 +475,7 @@ function UploadPage() {
   const [roleApplied, setRoleApplied] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [file, setFile] = useState<File | null>(null);
+  const [jdFile, setJdFile] = useState<File | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [plan, setPlan] = useState<InterviewPlan | null>(null);
   const [error, setError] = useState("");
@@ -464,10 +494,29 @@ function UploadPage() {
       return;
     }
 
+    if (!roleApplied.trim() && !jdFile) {
+      setError("Enter the role or upload a job description.");
+      return;
+    }
+
+    if (
+      roleApplied.trim() &&
+      roleApplied.trim().toLowerCase() === name.trim().toLowerCase() &&
+      !jdFile
+    ) {
+      setError("Enter the position title, not the candidate name, or upload a job description.");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("name", name);
-    formData.append("role_applied", roleApplied);
+    if (roleApplied.trim()) {
+      formData.append("role_applied", roleApplied);
+    }
     formData.append("file", file);
+    if (jdFile) {
+      formData.append("jd_file", jdFile);
+    }
 
     try {
       setIsUploading(true);
@@ -574,8 +623,8 @@ function UploadPage() {
         <p className="eyebrow">Interview setup</p>
         <h1>Build the candidate profile.</h1>
         <p>
-          Start with the resume. Once the parser confirms the profile, generate a
-          role-aware question plan from the same screen.
+          Start with the resume, then add either a role title or a job description.
+          The interviewer will use both documents to shape a realistic phone screen.
         </p>
       </section>
 
@@ -589,6 +638,8 @@ function UploadPage() {
           <label>
             Candidate name
             <input
+              name="candidate_name"
+              autoComplete="name"
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Aisha Khan"
@@ -599,10 +650,24 @@ function UploadPage() {
           <label>
             Role applied for
             <input
+              name="role_applied"
+              autoComplete="off"
               value={roleApplied}
               onChange={(event) => setRoleApplied(event.target.value)}
-              placeholder="Full-stack Developer"
-              required
+              placeholder="Full-stack Developer, or upload a JD below"
+            />
+          </label>
+
+          <label className="file-drop jd-file-drop">
+            <span>
+              {jdFile
+                ? jdFile.name
+                : "Optional: upload a PDF, DOCX, or TXT job description"}
+            </span>
+            <input
+              type="file"
+              accept=".pdf,.docx,.txt"
+              onChange={(event) => setJdFile(event.target.files?.[0] ?? null)}
             />
           </label>
 
@@ -629,7 +694,7 @@ function UploadPage() {
           </label>
 
           <button className="primary-action full-width" type="submit" disabled={isUploading}>
-            {isUploading ? "Parsing resume..." : "Upload and Parse Resume"}
+            {isUploading ? "Parsing documents..." : "Upload and Parse"}
           </button>
 
           {error && <p className="error-message">{error}</p>}
@@ -703,6 +768,13 @@ function UploadPage() {
                 <span className="tiny-label">Resume preview</span>
                 <p>{result.resume_preview}</p>
               </div>
+
+              {result.job_description_preview && (
+                <div className="resume-preview">
+                  <span className="tiny-label">Job description preview</span>
+                  <p>{result.job_description_preview}</p>
+                </div>
+              )}
 
               <button
                 className="secondary-action full-width"
@@ -780,7 +852,10 @@ function InterviewPage() {
           {
             id: "initial-question",
             speaker: "interviewer",
-            text: initialSession.current_question.question,
+            text: buildInterviewerTurnText(
+              initialSession.current_question,
+              initialSession,
+            ),
             skill_area: initialSession.current_question.skill_area,
             is_follow_up: initialSession.current_question.is_follow_up,
           },
@@ -859,13 +934,14 @@ function InterviewPage() {
 
     let audioUrl = "";
     let didCancel = false;
+    const spokenPrompt = buildInterviewerTurnText(currentQuestion, session);
     window.speechSynthesis.cancel();
 
     async function playQuestionAudio() {
       try {
         const response = await axios.post(
           `${API_BASE_URL}/api/voice/speech`,
-          { text: currentQuestion?.question || "" },
+          { text: spokenPrompt },
           {
             headers: authHeaders(getCandidateToken()),
             responseType: "blob",
@@ -894,13 +970,13 @@ function InterviewPage() {
           return;
         }
 
-        const utterance = new SpeechSynthesisUtterance(currentQuestion?.question || "");
+        const utterance = new SpeechSynthesisUtterance(spokenPrompt);
         const selectedVoice = chooseNaturalVoice(speechVoices);
         if (selectedVoice) {
           utterance.voice = selectedVoice;
         }
-        utterance.rate = 0.9;
-        utterance.pitch = 1.04;
+        utterance.rate = 0.94;
+        utterance.pitch = 1.01;
         utterance.volume = 1;
         window.speechSynthesis.speak(utterance);
       }
@@ -916,7 +992,7 @@ function InterviewPage() {
         URL.revokeObjectURL(audioUrl);
       }
     };
-  }, [currentQuestion, isVoiceEnabled, canSpeak, speechVoices]);
+  }, [currentQuestion, session, isVoiceEnabled, canSpeak, speechVoices]);
 
   useEffect(() => {
     return () => {
@@ -1099,7 +1175,10 @@ function InterviewPage() {
               {
                 id: `question-${items.length + 2}`,
                 speaker: "interviewer" as const,
-                text: response.data.current_question.question,
+                text: buildInterviewerTurnText(
+                  response.data.current_question,
+                  session,
+                ),
                 skill_area: response.data.current_question.skill_area,
                 is_follow_up: response.data.current_question.is_follow_up,
               },
@@ -1198,8 +1277,8 @@ function InterviewPage() {
             </Link>
             <h1>{session.candidate_name}</h1>
             <p>
-              {session.role_applied} screening session. The candidate only sees the
-              current prompt.
+              {session.role_applied} phone screen. The interviewer uses natural
+              transitions and keeps upcoming topics private.
             </p>
           </div>
 
@@ -1335,7 +1414,7 @@ function InterviewPage() {
                 <p className="voice-status">
                   {voiceStatus ||
                     (canRecord
-                      ? "Audio mode is ready. Use Speak Answer, then submit."
+                      ? "Audio mode is ready. Answer naturally, then submit."
                       : "Audio recording is unavailable in this browser.")}
                 </p>
               )}

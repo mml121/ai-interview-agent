@@ -13,6 +13,7 @@ class Candidate(Base):
     name: Mapped[str] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(Text, nullable=True)
     role_applied: Mapped[str] = mapped_column(Text)
+    job_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     difficulty: Mapped[str] = mapped_column(Text, default="medium")
     resume_text: Mapped[str] = mapped_column(Text)
     skills: Mapped[str] = mapped_column(Text, default="")
